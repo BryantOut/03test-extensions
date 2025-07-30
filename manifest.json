@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Taobao Seller Login Checker",
+  "version": "1.5",
+  "description": "跳转商家中心并判断是否已登录。",
+  "permissions": [
+    "tabs",
+    "notifications",
+    "webNavigation",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://myseller.taobao.com/*",
+    "https://loginmyseller.taobao.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "检查登录状态"
+  }
+}
