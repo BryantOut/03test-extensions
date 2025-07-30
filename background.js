@@ -33,6 +33,30 @@ function onLoginSuccess(tabId) {
   console.log("✅ 登录成功，执行后续业务逻辑");
 
   // TODO: 这里放你登录后需要执行的业务代码
+  // 注入脚本尝试点击“数据”链接
+  chrome.scripting.executeScript({
+    target: { tabId: tabId },
+    files: ["clickDataLink.js"]
+  }, () => {
+    if (chrome.runtime.lastError) {
+      notifyUser("⚠️ 注入点击脚本失败: " + chrome.runtime.lastError.message);
+    } else {
+      console.log("🧠 脚本已注入，等待跳转...");
+    }
+  });
+
+  // 监听页面跳转结果
+  chrome.runtime.onMessage.addListener(function handleResult(msg, sender, sendResponse) {
+    if (msg.type === "navigate-success") {
+      notifyUser("✅ 已点击数据中心链接，等待页面跳转...");
+      // 可进一步监听是否跳转到了sycm主页
+    } else if (msg.type === "navigate-failed") {
+      notifyUser("❌ 未找到数据中心链接，可能页面结构已变");
+    }
+
+    // 一次性监听器，使用完就移除
+    chrome.runtime.onMessage.removeListener(handleResult);
+  });
   // 例如刷新页面、注入脚本或向服务器发送状态等
 
   // 注册每日6:30定时任务，避免重复创建

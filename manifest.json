@@ -12,7 +12,8 @@
   ],
   "host_permissions": [
     "https://myseller.taobao.com/*",
-    "https://loginmyseller.taobao.com/*"
+    "https://loginmyseller.taobao.com/*",
+    "https://sycm.taobao.com/*"
   ],
   "background": {
     "service_worker": "background.js"
