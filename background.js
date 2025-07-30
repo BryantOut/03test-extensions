@@ -64,7 +64,17 @@ function setupNavigationListener(tabId) {
 
       notifyUser(message);
 
-      if (!isLoggedOut) {
+      if (isLoggedOut) {
+        // 未登录，清除定时任务
+        chrome.alarms.clear("dailyCrawl", (wasCleared) => {
+          if (wasCleared) {
+            console.log("⚠️ 未登录，已清除每日定时任务");
+          } else {
+            console.log("ℹ️ 未登录，但未发现定时任务可清除");
+          }
+        });
+      } else {
+        // 登录成功，执行后续操作
         onLoginSuccess(tabId);
       }
 
