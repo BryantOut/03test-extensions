@@ -120,33 +120,38 @@ function setupNavigationListener(tabId) {
 // ==========================
 // 插件图标点击
 // ==========================
-chrome.action.onClicked.addListener(() => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const activeTab = tabs[0];
-        const targetHost = "myseller.taobao.com";
-        const loginHost = "loginmyseller.taobao.com";
+// chrome.action.onClicked.addListener(() => {
+//     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+//         const activeTab = tabs[0];
+//         const targetHost = "myseller.taobao.com";
+//         const loginHost = "loginmyseller.taobao.com";
 
-        if (activeTab && (activeTab.url.includes(targetHost) || activeTab.url.includes(loginHost))) {
-            chrome.tabs.reload(activeTab.id, () => {
-                console.log("🔁 刷新当前标签页");
-                setupNavigationListener(activeTab.id);
-            });
-        } else {
-            chrome.tabs.create({ url: `https://${targetHost}/` }, (tab) => {
-                console.log("🆕 新开标签页");
-                setupNavigationListener(tab.id);
-            });
-        }
-    });
-});
+//         if (activeTab && (activeTab.url.includes(targetHost) || activeTab.url.includes(loginHost))) {
+//             chrome.tabs.reload(activeTab.id, () => {
+//                 console.log("🔁 刷新当前标签页");
+//                 setupNavigationListener(activeTab.id);
+//             });
+//         } else {
+//             chrome.tabs.create({ url: `https://${targetHost}/` }, (tab) => {
+//                 console.log("🆕 新开标签页");
+//                 setupNavigationListener(tab.id);
+//             });
+//         }
+//     });
+// });
 
 // ==========================
 // 后续步骤监听
 // ==========================
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    const tabId = sender.tab.id;
+    const tabId = sender?.tab?.id; // ✅ 安全获取 tabId，仅 content-script 可用
 
+    // 🧩 Step 1: 属性选择完成后执行 Step2
     if (message.type === 'attributeSelectionDone') {
+        if (!tabId) {
+            console.warn("⚠️ 无法执行 Step2，tabId 不存在");
+            return;
+        }
         console.log('📌 Step1 完成，执行 Step2');
         setTimeout(() => {
             chrome.scripting.executeScript({
@@ -156,7 +161,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }, DELAY_TIME);
     }
 
+    // 🧩 Step 2: 商品发现完成后执行 Step3
     if (message.type === 'triggerProductDiscoveryDone') {
+        if (!tabId) {
+            console.warn("⚠️ 无法执行 Step3，tabId 不存在");
+            return;
+        }
         console.log('📌 Step2 完成，执行 Step3');
         setTimeout(() => {
             chrome.scripting.executeScript({
@@ -166,16 +176,54 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }, DELAY_TIME);
     }
 
+    // 📦 Step 3: 接收数据结果
     if (message.type === 'drawerData') {
         console.log('📥 收到弹窗数据:', message.payload);
 
         if (taskQueue.length > 0) {
-            const currentTask = taskQueue.shift(); // 移除当前任务
+            const currentTask = taskQueue.shift();
             console.log('📊 当前任务参数:', currentTask.params);
         } else {
             console.warn("⚠️ 当前没有待执行任务");
         }
 
-        runNextTask(); // 执行下一个任务
+        runNextTask(); // ▶️ 执行下一任务
+    }
+
+    // 🚀 启动任务（来自 popup.js）
+    if (message.action === "startTask") {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            const activeTab = tabs[0];
+            const targetHost = "myseller.taobao.com";
+            const loginHost = "loginmyseller.taobao.com";
+
+            if (!activeTab || !activeTab.url) {
+                console.warn("❌ 当前标签页不可用");
+                return;
+            }
+
+            if (activeTab.url.includes(targetHost) || activeTab.url.includes(loginHost)) {
+                chrome.tabs.reload(activeTab.id, () => {
+                    console.log("🔁 刷新当前标签页");
+                    setupNavigationListener(activeTab.id);
+                });
+            } else {
+                chrome.tabs.create({ url: `https://${targetHost}/` }, (tab) => {
+                    if (tab && tab.id) {
+                        console.log("🆕 新开标签页");
+                        setupNavigationListener(tab.id);
+                    } else {
+                        console.warn("❌ 创建新标签页失败");
+                    }
+                });
+            }
+        });
+    }
+
+    // ❌ 用户手动取消
+    if (message.action === "cancelScraping") {
+        console.log("🚫 用户点击了取消爬取");
+        // TODO: 清理监听器/任务等
     }
 });
+

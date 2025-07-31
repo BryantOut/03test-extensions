@@ -18,6 +18,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "检查登录状态"
+    "default_popup": "popup.html",
+    "default_title": "生意参谋爬取"
   }
 }
