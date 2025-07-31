@@ -4,9 +4,9 @@
 
 ### 相关地址
 
-千牛首页地址：https://myseller.taobao.com
+- 千牛首页地址：https://myseller.taobao.com
 
-千牛登录地址：https://loginmyseller.taobao.com
+- 千牛登录地址：https://loginmyseller.taobao.com
 
 ### 点击拓展程序开始校验
 
