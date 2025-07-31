@@ -33,23 +33,31 @@ function onLoginSuccess(tabId) {
 }
 
 // ==========================
-// 设置导航监听器
+// 首次校验登录导航跳转
 // ==========================
 function setupNavigationListener(tabId) {
     const navigationListener = (details) => {
         if (details.tabId === tabId) {
             const finalUrl = details.url;
-            const isLoggedOut = finalUrl.startsWith("https://loginmyseller.taobao.com");
-
-            const message = isLoggedOut
-                ? "你尚未登录淘宝商家中心，请登录后重试！"
-                : "你已成功登录淘宝商家中心。";
-
-            notifyUser(message);
-
-            if (!isLoggedOut) {
+            console.log(finalUrl)
+            let message;
+            if (finalUrl.startsWith("https://loginmyseller.taobao.com")) {
+                message = '你尚未登录淘宝商家中心，请登录后重试'
+            } else if (finalUrl.startsWith("https://myseller.taobao.com")) {
+                message = '你已成功登录淘宝商家中心'
                 onLoginSuccess(tabId);
+            } else if (finalUrl.startsWith("https://sycm.taobao.com/")) {
+                console.log('进来了')
+                // 注入“第一步”内容脚本
+                setTimeout(() => {
+                    chrome.scripting.executeScript({
+                        target: { tabId },
+                        files: ['content_sycm_step1.js']
+                    });
+                }, DELAY_TIME)
             }
+
+            if (message) notifyUser(message);
 
             chrome.webNavigation.onCompleted.removeListener(navigationListener);
         }
@@ -58,7 +66,8 @@ function setupNavigationListener(tabId) {
     chrome.webNavigation.onCompleted.addListener(navigationListener, {
         url: [
             { hostContains: "myseller.taobao.com" },
-            { hostContains: "loginmyseller.taobao.com" }
+            { hostContains: "loginmyseller.taobao.com" },
+            { hostContains: "sycm.taobao.com" }
         ]
     });
 }
