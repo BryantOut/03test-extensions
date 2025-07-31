@@ -13,5 +13,5 @@
     console.log('属性筛选已处理');
 
     // ✅ 如果需要，调用下一步操作
-    // step2Start();
+    chrome.runtime.sendMessage({ type: 'attributeSelectionDone' });
 })();

@@ -94,3 +94,37 @@ chrome.action.onClicked.addListener(() => {
         }
     });
 });
+
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'attributeSelectionDone') {
+        const tabId = sender.tab.id;
+
+        console.log('🧩 收到属性选择完成通知，执行 step2');
+
+        setTimeout(() => {
+            chrome.scripting.executeScript({
+                target: { tabId },
+                files: ['content_sycm_step2.js']
+            });
+        }, DELAY_TIME)
+    }
+
+    if (message.type === 'triggerProductDiscoveryDone') {
+        const tabId = sender.tab.id;
+
+        console.log('🧩 收到属性选择完成通知，执行 step2');
+
+        setTimeout(() => {
+            chrome.scripting.executeScript({
+                target: { tabId },
+                files: ['content_sycm_step3.js']
+            });
+        }, DELAY_TIME)
+    }
+
+    if (message.type === 'drawerData') {
+        console.log('📥 收到弹窗数据:', message.payload);
+        // 你可以在这里保存数据、下载 JSON、处理逻辑等
+    }
+});
