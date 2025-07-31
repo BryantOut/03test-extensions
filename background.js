@@ -1,3 +1,5 @@
+const DELAY_TIME = 3000;
+
 // ==========================
 // 系统通知封装
 // ==========================
@@ -20,12 +22,14 @@ function notifyUser(message) {
 function onLoginSuccess(tabId) {
     console.log("✅ 登录成功，执行后续业务逻辑");
 
-    chrome.tabs.update(tabId, {
-        url: `https://sycm.taobao.com/mc/free/class_analysis?activeKey=attribute&dateRange=2025-07-23%7C2025-07-29&dateType=recent7&parentCateId=201898103&cateId=50025684&sellerType=-1&indType=pay_ord_amt`
-    }, function (tab) {
-        console.log("已更新当前标签页");
-        setupNavigationListener(tab.id);
-    });
+    setTimeout(() => {
+        chrome.tabs.update(tabId, {
+            url: `https://sycm.taobao.com/mc/free/class_analysis?activeKey=attribute&dateRange=2025-07-23%7C2025-07-29&dateType=recent7&parentCateId=201898103&cateId=50025684&sellerType=-1&indType=pay_ord_amt`
+        }, function (tab) {
+            console.log("已更新当前标签页");
+            setupNavigationListener(tab.id);
+        });
+    }, DELAY_TIME)
 }
 
 // ==========================
