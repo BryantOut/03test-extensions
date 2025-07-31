@@ -6,7 +6,7 @@ const DELAY_TIME = 3000;
 function notifyUser(message) {
     chrome.notifications.create({
         type: "basic",
-        iconUrl: "icon128.png", // 请确保插件目录有此图标
+        iconUrl: "icon128.png",
         title: "登录状态提示",
         message: message
     }, (notificationId) => {
@@ -17,44 +17,89 @@ function notifyUser(message) {
 }
 
 // ==========================
-// 登录成功后的操作逻辑
+// 构建分析链接
 // ==========================
-function onLoginSuccess(tabId) {
-    console.log("✅ 登录成功，执行后续业务逻辑");
-
-    setTimeout(() => {
-        chrome.tabs.update(tabId, {
-            url: `https://sycm.taobao.com/mc/free/class_analysis?activeKey=attribute&dateRange=2025-07-23%7C2025-07-29&dateType=recent7&parentCateId=201898103&cateId=50025684&sellerType=-1&indType=pay_ord_amt`
-        }, function (tab) {
-            console.log("已更新当前标签页");
-            setupNavigationListener(tab.id);
-        });
-    }, DELAY_TIME)
+function buildAnalysisUrl({ startDate, endDate, cateId, dateType }) {
+    return `https://sycm.taobao.com/mc/free/class_analysis?activeKey=attribute&dateRange=${startDate}%7C${endDate}&dateType=${dateType}&parentCateId=201898103&cateId=${cateId}&sellerType=-1&indType=pay_ord_amt`;
 }
 
 // ==========================
-// 首次校验登录导航跳转
+// 获取最近日期
+// ==========================
+function formatDate(date) {
+    return date.toISOString().split('T')[0];
+}
+
+function getDateParams() {
+    const today = new Date();
+    const oneDay = 24 * 60 * 60 * 1000;
+    const yesterday = new Date(today.getTime() - oneDay);
+    const sevenDaysAgo = new Date(today.getTime() - 7 * oneDay);
+
+    const s1 = formatDate(sevenDaysAgo);
+    const e1 = formatDate(yesterday);
+
+    return [
+        { startDate: s1, endDate: e1, cateId: "50025684", dateType: 'recent7' },
+        { startDate: e1, endDate: e1, cateId: "50025684", dateType: 'day' },
+        { startDate: s1, endDate: e1, cateId: "50008062", dateType: 'recent7' },
+        { startDate: e1, endDate: e1, cateId: "50008062", dateType: 'day' }
+    ];
+}
+
+// ==========================
+// 操作调度器
+// ==========================
+let taskQueue = [];
+let currentTabId = null;
+
+function startTasks(tabId) {
+    taskQueue = getDateParams().map(params => ({
+        url: buildAnalysisUrl(params),
+        params
+    }));
+    currentTabId = tabId;
+    runNextTask();
+}
+
+function runNextTask() {
+    if (taskQueue.length === 0) {
+        console.log("✅ 所有任务执行完毕");
+        return;
+    }
+
+    const { url } = taskQueue[0]; // 等待 drawerData 时再 shift
+
+    setTimeout(() => {
+        chrome.tabs.update(currentTabId, { url }, (tab) => {
+            console.log("➡️ 跳转到任务链接:", url);
+            setupNavigationListener(tab.id);
+        });
+    }, DELAY_TIME);
+}
+
+// ==========================
+// 登录校验监听
 // ==========================
 function setupNavigationListener(tabId) {
     const navigationListener = (details) => {
         if (details.tabId === tabId) {
             const finalUrl = details.url;
-            console.log(finalUrl)
-            let message;
+            let message = null;
+
             if (finalUrl.startsWith("https://loginmyseller.taobao.com")) {
-                message = '你尚未登录淘宝商家中心，请登录后重试'
+                message = '你尚未登录淘宝商家中心，请登录后重试';
             } else if (finalUrl.startsWith("https://myseller.taobao.com")) {
-                message = '你已成功登录淘宝商家中心'
-                onLoginSuccess(tabId);
+                message = '你已成功登录淘宝商家中心';
+                startTasks(tabId); // 登录成功后启动任务
             } else if (finalUrl.startsWith("https://sycm.taobao.com/")) {
-                console.log('进来了')
-                // 注入“第一步”内容脚本
+                console.log("✅ SYCM 页面加载成功，注入 Step1");
                 setTimeout(() => {
                     chrome.scripting.executeScript({
                         target: { tabId },
                         files: ['content_sycm_step1.js']
                     });
-                }, DELAY_TIME)
+                }, DELAY_TIME);
             }
 
             if (message) notifyUser(message);
@@ -73,7 +118,7 @@ function setupNavigationListener(tabId) {
 }
 
 // ==========================
-// 扩展图标点击逻辑
+// 插件图标点击
 // ==========================
 chrome.action.onClicked.addListener(() => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -83,48 +128,54 @@ chrome.action.onClicked.addListener(() => {
 
         if (activeTab && (activeTab.url.includes(targetHost) || activeTab.url.includes(loginHost))) {
             chrome.tabs.reload(activeTab.id, () => {
-                console.log("刷新当前标签页");
+                console.log("🔁 刷新当前标签页");
                 setupNavigationListener(activeTab.id);
             });
         } else {
             chrome.tabs.create({ url: `https://${targetHost}/` }, (tab) => {
-                console.log("新开标签页");
+                console.log("🆕 新开标签页");
                 setupNavigationListener(tab.id);
             });
         }
     });
 });
 
-
+// ==========================
+// 后续步骤监听
+// ==========================
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    const tabId = sender.tab.id;
+
     if (message.type === 'attributeSelectionDone') {
-        const tabId = sender.tab.id;
-
-        console.log('🧩 收到属性选择完成通知，执行 step2');
-
+        console.log('📌 Step1 完成，执行 Step2');
         setTimeout(() => {
             chrome.scripting.executeScript({
                 target: { tabId },
                 files: ['content_sycm_step2.js']
             });
-        }, DELAY_TIME)
+        }, DELAY_TIME);
     }
 
     if (message.type === 'triggerProductDiscoveryDone') {
-        const tabId = sender.tab.id;
-
-        console.log('🧩 收到属性选择完成通知，执行 step2');
-
+        console.log('📌 Step2 完成，执行 Step3');
         setTimeout(() => {
             chrome.scripting.executeScript({
                 target: { tabId },
                 files: ['content_sycm_step3.js']
             });
-        }, DELAY_TIME)
+        }, DELAY_TIME);
     }
 
     if (message.type === 'drawerData') {
         console.log('📥 收到弹窗数据:', message.payload);
-        // 你可以在这里保存数据、下载 JSON、处理逻辑等
+
+        if (taskQueue.length > 0) {
+            const currentTask = taskQueue.shift(); // 移除当前任务
+            console.log('📊 当前任务参数:', currentTask.params);
+        } else {
+            console.warn("⚠️ 当前没有待执行任务");
+        }
+
+        runNextTask(); // 执行下一个任务
     }
 });
