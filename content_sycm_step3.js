@@ -30,13 +30,13 @@
       const unitPrice = tds[3].querySelector('.alife-dt-card-common-table-sortable-value span')?.textContent.trim() || '';
 
       result.push({
-        排名: index + 1,
-        链接ID: linkId,
-        链接图片: fullImgSrc,
-        链接名称: linkName,
-        支付金额: payAmt,
-        支付单量: payVol,
-        件单价: unitPrice
+        ranking: index + 1,
+        numIID: linkId,
+        proUrl: fullImgSrc,
+        proName: linkName,
+        payment: payAmt,
+        payCount: payVol,
+        unitPrice: unitPrice
       });
     });
 
