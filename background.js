@@ -1,13 +1,16 @@
 // ========== 配置 ==========
-const HOURLY_INTERVAL = 60 * 60 * 1000; // 1 hour
+const HOURLY_INTERVAL = 60 * 60 * 1000; // 每小时执行一次
 
-// 新增状态变量 isScrapingActive 控制是否继续执行任务
+// 状态变量：是否激活任务
 let isScrapingActive = false;
+let taskQueue = [];
+let currentTabId = null;
 
-// ========== 定时器辅助函数 ==========
+// ========== 辅助函数 ==========
+
 function updateBadgeText(text) {
     chrome.action.setBadgeText({ text });
-    chrome.action.setBadgeBackgroundColor({ color: text === 'on' ? '#4CAF50' : '#f44336' }); // 绿色/红色
+    chrome.action.setBadgeBackgroundColor({ color: text === 'on' ? '#4CAF50' : '#f44336' });
 }
 
 function isWithinActiveHours() {
@@ -28,49 +31,16 @@ function createNextDayAlarm() {
     const next8am = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 8, 0, 0, 0);
     const delay = next8am.getTime() - now.getTime();
 
-    chrome.alarms.create('nextDayStart', {
-        when: Date.now() + delay
-    });
+    chrome.alarms.create('nextDayStart', { when: Date.now() + delay });
     console.log(`[Alarm] ⏱️ 安排明天8点任务启动，等待 ${Math.floor(delay / 60000)} 分钟`);
 }
 
 function clearAllAlarms() {
     chrome.alarms.clearAll(() => {
         console.log('[Alarm] 🧹 所有 alarms 已清除');
-        // updateBadgeText('off');
     });
 }
 
-// ========== 报警事件监听器 ==========
-chrome.alarms.onAlarm.addListener((alarm) => {
-    const now = new Date();
-    const hour = now.getHours();
-
-    if (alarm.name === 'hourlyTask') {
-        if (isWithinActiveHours()) {
-            console.log('[Alarm] ✅ hourlyTask 触发');
-            triggerScraping();
-        } else {
-            console.log('[Alarm] 🌙 超过活跃时间，停止 hourlyTask');
-            chrome.alarms.clear('hourlyTask');
-            createNextDayAlarm();
-        }
-    }
-
-    if (alarm.name === 'nextDayStart') {
-        if (isWithinActiveHours()) {
-            console.log('[Alarm] 🌅 新一天任务开始，执行任务并重启 hourlyTask');
-            triggerScraping();
-            createHourlyAlarm();
-            updateBadgeText('on'); // ✅ 重新启动时设置徽章
-        } else {
-            console.log('[Alarm] 😴 还未到活跃时间，延迟启动');
-            createNextDayAlarm();
-        }
-    }
-});
-
-// ========== 系统通知 ==========
 function notifyUser(message) {
     chrome.notifications.create({
         type: "basic",
@@ -84,10 +54,46 @@ function notifyUser(message) {
     });
 }
 
-// ========== 任务调度逻辑 ==========
+// ========== 持久化状态 ==========
 
-let taskQueue = [];
-let currentTabId = null;
+function setScrapingActiveState(state) {
+    isScrapingActive = state;
+    chrome.storage.local.set({ isScrapingActive: state });
+}
+
+function persistTaskQueue() {
+    chrome.storage.local.set({ taskQueue: JSON.stringify(taskQueue) });
+}
+
+function restoreScrapingState() {
+    chrome.storage.local.get(['isScrapingActive', 'taskQueue'], (result) => {
+        if (result.isScrapingActive) {
+            isScrapingActive = true;
+            console.log('[Restore] 任务状态恢复');
+
+            if (result.taskQueue) {
+                try {
+                    taskQueue = JSON.parse(result.taskQueue);
+                    console.log('[Restore] 恢复任务队列:', taskQueue.length, '项');
+                } catch (err) {
+                    console.warn('[Restore] 任务队列解析失败:', err);
+                }
+            }
+
+            triggerScraping();
+            if (isWithinActiveHours()) {
+                createHourlyAlarm();
+            } else {
+                createNextDayAlarm();
+            }
+            updateBadgeText('on');
+        } else {
+            updateBadgeText('off');
+        }
+    });
+}
+
+// ========== 时间参数工具 ==========
 
 function getDateParams() {
     const today = new Date();
@@ -114,19 +120,21 @@ function buildAnalysisUrl({ startDate, endDate, cateId, dateType }) {
     return `https://sycm.taobao.com/mc/free/class_analysis?activeKey=attribute&dateRange=${startDate}%7C${endDate}&dateType=${dateType}&parentCateId=201898103&cateId=${cateId}&sellerType=-1&indType=pay_ord_amt`;
 }
 
+// ========== 任务调度逻辑 ==========
+
 function startTasks(tabId) {
     taskQueue = getDateParams().map(params => ({
         url: buildAnalysisUrl(params),
         params
     }));
     currentTabId = tabId;
+    persistTaskQueue();
     runNextTask();
 }
 
 function runNextTask() {
-
     if (!isScrapingActive) {
-        console.log('[Task] ⏹️ 已被取消，不执行任务');
+        console.log('[Task] ⏹️ 已被取消');
         return;
     }
 
@@ -139,6 +147,10 @@ function runNextTask() {
 
     setTimeout(() => {
         chrome.tabs.update(currentTabId, { url }, (tab) => {
+            if (chrome.runtime.lastError) {
+                console.error('[Tabs] 更新失败:', chrome.runtime.lastError.message);
+                return;
+            }
             console.log("➡️ 跳转至分析链接:", url);
             setupNavigationListener(tab.id);
         });
@@ -146,32 +158,44 @@ function runNextTask() {
 }
 
 function setupNavigationListener(tabId) {
-    const navigationListener = (details) => {
-        if (details.tabId === tabId) {
-            const finalUrl = details.url;
-            let message = null;
+    // 清理之前的监听，防止重复监听导致多次触发
+    chrome.webNavigation.onCompleted.removeListener(onNavigationCompleted);
 
-            if (finalUrl.startsWith("https://loginmyseller.taobao.com")) {
-                message = '你尚未登录淘宝商家中心，请登录后重试';
-            } else if (finalUrl.startsWith("https://myseller.taobao.com")) {
-                message = '你已成功登录淘宝商家中心';
-                startTasks(tabId);
-            } else if (finalUrl.startsWith("https://sycm.taobao.com/")) {
-                console.log("✅ SYCM 页面加载成功，注入 Step1");
-                setTimeout(() => {
-                    chrome.scripting.executeScript({
-                        target: { tabId },
-                        files: ['content_sycm_step1.js']
-                    });
-                }, 3000);
+    function onNavigationCompleted(details) {
+        if (details.tabId !== tabId) return;
+
+        const finalUrl = details.url;
+
+        if (finalUrl.startsWith("https://loginmyseller.taobao.com")) {
+            notifyUser('你尚未登录淘宝商家中心，请登录后重试');
+        } else if (finalUrl.startsWith("https://myseller.taobao.com")) {
+            notifyUser('你已成功登录淘宝商家中心');
+            // 登录成功，立即启动任务（和 startTask 一致的逻辑）
+            if (!isScrapingActive) {
+                setScrapingActiveState(true);
+                if (isWithinActiveHours()) {
+                    createHourlyAlarm();
+                } else {
+                    createNextDayAlarm();
+                }
+                updateBadgeText('on');
             }
-
-            if (message) notifyUser(message);
-            chrome.webNavigation.onCompleted.removeListener(navigationListener);
+            startTasks(tabId);
+        } else if (finalUrl.startsWith("https://sycm.taobao.com/")) {
+            console.log("✅ SYCM 页面加载成功，注入 Step1 脚本");
+            setTimeout(() => {
+                chrome.scripting.executeScript({
+                    target: { tabId },
+                    files: ['content_sycm_step1.js']
+                }).catch(err => console.error('注入 Step1 脚本失败:', err));
+            }, 3000);
         }
-    };
 
-    chrome.webNavigation.onCompleted.addListener(navigationListener, {
+        // 监听一次，完成后移除
+        chrome.webNavigation.onCompleted.removeListener(onNavigationCompleted);
+    }
+
+    chrome.webNavigation.onCompleted.addListener(onNavigationCompleted, {
         url: [
             { hostContains: "myseller.taobao.com" },
             { hostContains: "loginmyseller.taobao.com" },
@@ -181,27 +205,21 @@ function setupNavigationListener(tabId) {
 }
 
 function triggerScraping() {
-    if (!isScrapingActive) {
-        console.log('[Task] ⏹️ 已被取消，不执行任务');
-        return;
-    }
-
-    if (!isWithinActiveHours()) {
-        console.log('[Task] ⏸ 非活跃时间段，不执行任务');
+    if (!isScrapingActive || !isWithinActiveHours()) {
+        console.log('[Task] ⏸ 非活跃时间段或已取消');
         return;
     }
 
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const activeTab = tabs[0];
         const targetHost = "myseller.taobao.com";
-        const loginHost = "loginmyseller.taobao.com";
 
         if (!activeTab || !activeTab.url) {
             console.warn("[Task] ❌ 当前标签页不可用");
             return;
         }
 
-        if (activeTab.url.includes(targetHost) || activeTab.url.includes(loginHost)) {
+        if (activeTab.url.includes(targetHost) || activeTab.url.includes("loginmyseller.taobao.com")) {
             chrome.tabs.reload(activeTab.id, () => {
                 console.log("[Task] 🔁 刷新当前标签页");
                 setupNavigationListener(activeTab.id);
@@ -219,77 +237,118 @@ function triggerScraping() {
     });
 }
 
-// ========== 插件消息响应 ==========
+// ========== 消息监听 ==========
+
 chrome.runtime.onMessage.addListener((message, sender) => {
     const tabId = sender?.tab?.id;
 
     switch (message.action) {
-        case 'startTask': {
+        case 'startTask':
             clearAllAlarms();
-
-            isScrapingActive = true;
-
+            setScrapingActiveState(true);
             triggerScraping();
-
             if (isWithinActiveHours()) {
                 createHourlyAlarm();
             } else {
                 createNextDayAlarm();
             }
-
             updateBadgeText('on');
             break;
-        }
 
-        case 'attributeSelectionDone': {
-            if (!tabId) return;
-            setTimeout(() => {
-                chrome.scripting.executeScript({
-                    target: { tabId },
-                    files: ['content_sycm_step2.js']
-                });
-            }, 3000);
+        case 'attributeSelectionDone':
+            if (tabId) {
+                setTimeout(() => {
+                    chrome.scripting.executeScript({
+                        target: { tabId },
+                        files: ['content_sycm_step2.js']
+                    }).catch(err => console.error('注入 Step2 脚本失败:', err));
+                }, 3000);
+            }
             break;
-        }
 
-        case 'triggerProductDiscoveryDone': {
-            if (!tabId) return;
-            setTimeout(() => {
-                chrome.scripting.executeScript({
-                    target: { tabId },
-                    files: ['content_sycm_step3.js']
-                });
-            }, 3000);
+        case 'triggerProductDiscoveryDone':
+            if (tabId) {
+                setTimeout(() => {
+                    chrome.scripting.executeScript({
+                        target: { tabId },
+                        files: ['content_sycm_step3.js']
+                    }).catch(err => console.error('注入 Step3 脚本失败:', err));
+                }, 3000);
+            }
             break;
-        }
 
-        case 'drawerData': {
+        case 'drawerData':
             console.log('[Step3] 收到数据:', message.payload);
             if (taskQueue.length > 0) {
                 const currentTask = taskQueue.shift();
                 console.log('[Step3] 当前任务参数:', currentTask.params);
+                persistTaskQueue();
             }
             runNextTask();
             break;
-        }
 
-        case 'cancelScraping': {
+        case 'cancelScraping':
             console.log('[Task] 用户取消采集任务');
             clearAllAlarms();
             taskQueue = [];
-            isScrapingActive = false;
+            setScrapingActiveState(false);
+            chrome.storage.local.remove('taskQueue');
             updateBadgeText('off');
             break;
-        }
 
-        case 'error': {
+        case 'error':
             console.error('[Error] 插件错误：', message.message);
             notifyUser(message.message);
             clearAllAlarms();
             break;
-        }
 
         default:
             console.warn('[Message] 未知类型:', message.action);
     }
+});
+
+// ========== 监听 Alarm 触发 ==========
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === 'hourlyTask') {
+        console.log('[Alarm] ⏰ hourlyTask 触发');
+        if (isWithinActiveHours() && isScrapingActive) {
+            triggerScraping();
+        } else {
+            createNextDayAlarm();
+        }
+    } else if (alarm.name === 'nextDayStart') {
+        console.log('[Alarm] ⏱️ nextDayStart 触发');
+        if (isWithinActiveHours()) {
+            if (isScrapingActive) {
+                triggerScraping();
+                createHourlyAlarm();
+            }
+        } else {
+            createNextDayAlarm();
+        }
+    }
+});
+
+// ========== 监听标签关闭事件，关闭任务 ==========
+chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+    if (tabId === currentTabId) {
+        console.log('[Tabs] 目标采集标签页关闭，停止任务');
+        clearAllAlarms();
+        taskQueue = [];
+        setScrapingActiveState(false);
+        chrome.storage.local.remove('taskQueue');
+        updateBadgeText('off');
+        currentTabId = null;
+    }
+});
+
+// ========== 启动时自动恢复 ==========
+chrome.runtime.onStartup.addListener(() => {
+    console.log('[Startup] Chrome 启动，恢复状态');
+    restoreScrapingState();
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+    console.log('[Install] 插件已安装，初始化状态');
+    restoreScrapingState();
 });

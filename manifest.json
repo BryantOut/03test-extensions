@@ -8,7 +8,8 @@
     "notifications",
     "webNavigation",
     "scripting",
-    "alarms"
+    "alarms",
+    "storage"
   ],
   "host_permissions": [
     "https://myseller.taobao.com/*",
