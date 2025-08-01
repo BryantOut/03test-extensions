@@ -2,6 +2,7 @@
 const HOURLY_INTERVAL = 60 * 60 * 1000; // 每小时执行一次
 const DELAY_TIME = 3000;
 const WEB_HOOK_URL = 'https://open.feishu.cn/open-apis/bot/v2/hook/64eb0327-2138-48ef-a5c3-2f1bab3a6a57';
+const VITE_API_URL ="http://localhost:5050"
 
 // 状态变量：是否激活任务
 let isScrapingActive = false;
@@ -272,7 +273,7 @@ function triggerScraping() {
 // ========== 发送结果给后端 ==========
 async function saveCateLinkRankHandler(data) {
     try {
-        const { isError, errMsg, msg } = await fetch('http://localhost:5050/api/Compe/SaveCateLinkRank', {
+        const { isError, errMsg, msg } = await fetch(`${VITE_API_URL}/api/Compe/SaveCateLinkRank`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json;charset=UTF-8'
