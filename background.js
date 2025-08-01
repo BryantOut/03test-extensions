@@ -118,36 +118,13 @@ function setupNavigationListener(tabId) {
 }
 
 // ==========================
-// 插件图标点击
-// ==========================
-// chrome.action.onClicked.addListener(() => {
-//     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-//         const activeTab = tabs[0];
-//         const targetHost = "myseller.taobao.com";
-//         const loginHost = "loginmyseller.taobao.com";
-
-//         if (activeTab && (activeTab.url.includes(targetHost) || activeTab.url.includes(loginHost))) {
-//             chrome.tabs.reload(activeTab.id, () => {
-//                 console.log("🔁 刷新当前标签页");
-//                 setupNavigationListener(activeTab.id);
-//             });
-//         } else {
-//             chrome.tabs.create({ url: `https://${targetHost}/` }, (tab) => {
-//                 console.log("🆕 新开标签页");
-//                 setupNavigationListener(tab.id);
-//             });
-//         }
-//     });
-// });
-
-// ==========================
 // 后续步骤监听
 // ==========================
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const tabId = sender?.tab?.id; // ✅ 安全获取 tabId，仅 content-script 可用
 
     // 🧩 Step 1: 属性选择完成后执行 Step2
-    if (message.type === 'attributeSelectionDone') {
+    if (message.action === 'attributeSelectionDone') {
         if (!tabId) {
             console.warn("⚠️ 无法执行 Step2，tabId 不存在");
             return;
@@ -162,7 +139,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     // 🧩 Step 2: 商品发现完成后执行 Step3
-    if (message.type === 'triggerProductDiscoveryDone') {
+    if (message.action === 'triggerProductDiscoveryDone') {
         if (!tabId) {
             console.warn("⚠️ 无法执行 Step3，tabId 不存在");
             return;
@@ -177,7 +154,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     // 📦 Step 3: 接收数据结果
-    if (message.type === 'drawerData') {
+    if (message.action === 'drawerData') {
         console.log('📥 收到弹窗数据:', message.payload);
 
         if (taskQueue.length > 0) {
@@ -224,6 +201,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === "cancelScraping") {
         console.log("🚫 用户点击了取消爬取");
         // TODO: 清理监听器/任务等
+    }
+
+    // 处理过程中的报错
+    if (message.action === 'error') {
+        console.error('❌ 插件报错:', message.message);
     }
 });
 

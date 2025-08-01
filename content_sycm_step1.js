@@ -1,17 +1,28 @@
 (function selectAttributes() {
-    const container = document.querySelector('.checkbox-container');
-    if (!container) return;
-
-    const items = container.querySelectorAll('.checkbox-item.checked');
-    items.forEach(item => {
-        const text = item.textContent.trim();
-        if (text !== '品牌') {
-            item.click();
+    try {
+        const container = document.querySelector('.checkbox-container');
+        if (!container) {
+            chrome.runtime.sendMessage({
+                action: 'error',
+                message: 'content_sycm_step1：未找到 .checkbox-container 元素'
+            });
+            return;
         }
-    });
 
-    console.log('属性筛选已处理');
+        const items = container.querySelectorAll('.checkbox-item.checked');
+        items.forEach(item => {
+            const text = item.textContent?.trim();
+            if (text && text !== '品牌') {
+                item.click();
+            }
+        });
 
-    // ✅ 如果需要，调用下一步操作
-    chrome.runtime.sendMessage({ type: 'attributeSelectionDone' });
+        chrome.runtime.sendMessage({ action: 'attributeSelectionDone' });
+
+    } catch (error) {
+        chrome.runtime.sendMessage({
+            action: 'error',
+            message: `content_sycm_step1：${error.message}`
+        });
+    }
 })();
