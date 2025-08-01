@@ -1,6 +1,7 @@
 // ========== 配置 ==========
 const HOURLY_INTERVAL = 60 * 60 * 1000; // 每小时执行一次
 const DELAY_TIME = 3000;
+const WEB_HOOK_URL = 'https://open.feishu.cn/open-apis/bot/v2/hook/64eb0327-2138-48ef-a5c3-2f1bab3a6a57';
 
 // 状态变量：是否激活任务
 let isScrapingActive = false;
@@ -42,17 +43,37 @@ function clearAllAlarms() {
     });
 }
 
-function notifyUser(message) {
-    chrome.notifications.create({
-        type: "basic",
-        iconUrl: "icon128.png",
-        title: "任务提示",
-        message: message
-    }, () => {
-        if (chrome.runtime.lastError) {
-            console.error("通知失败:", chrome.runtime.lastError.message);
+async function notifyUser(message) {
+    // chrome.notifications.create({
+    //     type: "basic",
+    //     iconUrl: "icon128.png",
+    //     title: "任务提示",
+    //     message: message
+    // }, () => {
+    //     if (chrome.runtime.lastError) {
+    //         console.error("通知失败:", chrome.runtime.lastError.message);
+    //     }
+    // });
+    try {
+        const response = await fetch(WEB_HOOK_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                msg_type: 'text',
+                content: { text: message }
+            })
+        });
+
+        if (response.ok) {
+            console.log('飞书通知成功');
+        } else {
+            console.log(`飞书通知失败，状态码: ${response.status}`);
         }
-    });
+    } catch (error) {
+        console.log('飞书通知请求出错:', error);
+    }
 }
 
 // ========== 持久化状态 ==========
@@ -168,9 +189,10 @@ function setupNavigationListener(tabId) {
         const finalUrl = details.url;
 
         if (finalUrl.startsWith("https://loginmyseller.taobao.com")) {
-            notifyUser('你尚未登录淘宝商家中心，请登录后重试');
+            notifyUser('登录失效：你尚未登录淘宝商家中心，请登录后重试');
         } else if (finalUrl.startsWith("https://myseller.taobao.com")) {
-            notifyUser('你已成功登录淘宝商家中心');
+            // notifyUser('登录成功：你已成功登录淘宝商家中心');
+            console.log('登录成功：你已成功登录淘宝商家中心');
             // 登录成功，立即启动任务（和 startTask 一致的逻辑）
             if (!isScrapingActive) {
                 setScrapingActiveState(true);
@@ -259,13 +281,13 @@ async function saveCateLinkRankHandler(data) {
         });
 
         if (isError) {
-            notifyUser(errMsg);
+            notifyUser(`爬取异常：${errMsg}`);
         } else {
             console.log('[Step3] ✅ 数据保存成功:', msg);
         }
         return !isError; // 标识成功
     } catch (err) {
-        notifyUser('发送数据失败，请检查后端服务是否启动');
+        notifyUser('爬取异常：发送数据失败，请检查后端服务是否启动');
         return false; // 标识失败
     }
 }
@@ -351,7 +373,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
         case 'error':
             console.error('[Error] 插件错误：', message.message);
-            notifyUser(message.message);
+            notifyUser(`插件异常：${message.message}`);
             clearAllAlarms();
             break;
 
