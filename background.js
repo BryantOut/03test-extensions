@@ -1,5 +1,6 @@
 // ========== 配置 ==========
 const HOURLY_INTERVAL = 60 * 60 * 1000; // 每小时执行一次
+const DELAY_TIME = 3000;
 
 // 状态变量：是否激活任务
 let isScrapingActive = false;
@@ -105,10 +106,10 @@ function getDateParams() {
     const e1 = formatDate(yesterday);
 
     return [
-        { startDate: s1, endDate: e1, cateId: "50025684", dateType: 'recent7' },
-        { startDate: e1, endDate: e1, cateId: "50025684", dateType: 'day' },
-        { startDate: s1, endDate: e1, cateId: "50008062", dateType: 'recent7' },
-        { startDate: e1, endDate: e1, cateId: "50008062", dateType: 'day' }
+        { statisticsStartTime: s1, statisticsEndTime: e1, cateId: "50025684", cate: '包点', dateType: 'recent7', statisticsTimeType: 0 },
+        { statisticsStartTime: e1, statisticsEndTime: e1, cateId: "50025684", cate: '包点', dateType: 'day', statisticsTimeType: 1 },
+        { statisticsStartTime: s1, statisticsEndTime: e1, cateId: "50008062", cate: '月饼', dateType: 'recent7', statisticsTimeType: 0 },
+        { statisticsStartTime: e1, statisticsEndTime: e1, cateId: "50008062", cate: '月饼', dateType: 'day', statisticsTimeType: 1 }
     ];
 }
 
@@ -116,8 +117,8 @@ function formatDate(date) {
     return date.toISOString().split('T')[0];
 }
 
-function buildAnalysisUrl({ startDate, endDate, cateId, dateType }) {
-    return `https://sycm.taobao.com/mc/free/class_analysis?activeKey=attribute&dateRange=${startDate}%7C${endDate}&dateType=${dateType}&parentCateId=201898103&cateId=${cateId}&sellerType=-1&indType=pay_ord_amt`;
+function buildAnalysisUrl({ statisticsStartTime, statisticsEndTime, cateId, dateType }) {
+    return `https://sycm.taobao.com/mc/free/class_analysis?activeKey=attribute&dateRange=${statisticsStartTime}%7C${statisticsEndTime}&dateType=${dateType}&parentCateId=201898103&cateId=${cateId}&sellerType=-1&indType=pay_ord_amt`;
 }
 
 // ========== 任务调度逻辑 ==========
@@ -184,10 +185,19 @@ function setupNavigationListener(tabId) {
         } else if (finalUrl.startsWith("https://sycm.taobao.com/")) {
             console.log("✅ SYCM 页面加载成功，注入 Step1 脚本");
             setTimeout(() => {
-                chrome.scripting.executeScript({
-                    target: { tabId },
-                    files: ['content_sycm_step1.js']
-                }).catch(err => console.error('注入 Step1 脚本失败:', err));
+                // 检查 tab 是否存在
+                chrome.tabs.get(tabId, (tab) => {
+                    if (chrome.runtime.lastError || !tab) {
+                        console.error(`标签页不存在或已关闭，无法注入脚本: ${chrome.runtime.lastError?.message}`);
+                        return;
+                    }
+
+                    // 注入脚本
+                    chrome.scripting.executeScript({
+                        target: { tabId },
+                        files: ['content_sycm_step1.js']
+                    }).catch(err => console.error('注入 Step1 脚本失败:', err));
+                });
             }, 3000);
         }
 
@@ -237,6 +247,29 @@ function triggerScraping() {
     });
 }
 
+// ========== 发送结果给后端 ==========
+async function saveCateLinkRankHandler(data) {
+    try {
+        const { isError, errMsg, msg } = await fetch('http://localhost:5050/api/Compe/SaveCateLinkRank', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json;charset=UTF-8'
+            },
+            body: JSON.stringify(data)
+        });
+
+        if (isError) {
+            notifyUser(errMsg);
+        } else {
+            console.log('[Step3] ✅ 数据保存成功:', msg);
+        }
+        return !isError; // 标识成功
+    } catch (err) {
+        notifyUser('发送数据失败，请检查后端服务是否启动');
+        return false; // 标识失败
+    }
+}
+
 // ========== 消息监听 ==========
 
 chrome.runtime.onMessage.addListener((message, sender) => {
@@ -279,12 +312,32 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
         case 'drawerData':
             console.log('[Step3] 收到数据:', message.payload);
-            if (taskQueue.length > 0) {
-                const currentTask = taskQueue.shift();
-                console.log('[Step3] 当前任务参数:', currentTask.params);
-                persistTaskQueue();
-            }
-            runNextTask();
+
+            (async () => {
+                if (taskQueue.length > 0) {
+                    const currentTask = taskQueue.shift();
+                    console.log('[Step3] 当前任务参数:', currentTask.params);
+
+                    const { cate, statisticsTimeType, statisticsStartTime, statisticsEndTime } = currentTask.params;
+
+                    // 等待保存结果
+                    const success = await saveCateLinkRankHandler({
+                        cate,
+                        statisticsTimeType,
+                        statisticsStartTime,
+                        statisticsEndTime,
+                        linkRankList: message.payload
+                    });
+
+                    if (success) {
+                        persistTaskQueue();
+                        runNextTask();
+                    } else {
+                        console.warn('[Step3] 停止任务队列，等待人工干预或重试');
+                        // 可选：taskQueue.unshift(currentTask); // 放回队列末尾等待重试
+                    }
+                }
+            })();
             break;
 
         case 'cancelScraping':
