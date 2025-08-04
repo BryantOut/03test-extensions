@@ -40,21 +40,16 @@ function createNextDayAlarm() {
 
 function clearAllAlarms() {
     chrome.alarms.clearAll(() => {
-        console.log('[Alarm] 🧹 所有 alarms 已清除');
+        taskQueue = [];
+        setScrapingActiveState(false);
+        chrome.storage.local.remove('taskQueue');
+        updateBadgeText('off');
+        currentTabId = null;
     });
 }
 
 async function notifyUser(message) {
-    // chrome.notifications.create({
-    //     type: "basic",
-    //     iconUrl: "icon128.png",
-    //     title: "任务提示",
-    //     message: message
-    // }, () => {
-    //     if (chrome.runtime.lastError) {
-    //         console.error("通知失败:", chrome.runtime.lastError.message);
-    //     }
-    // });
+    clearAllAlarms();
     try {
         const response = await fetch(WEB_HOOK_URL, {
             method: 'POST',
@@ -366,16 +361,11 @@ chrome.runtime.onMessage.addListener((message, sender) => {
         case 'cancelScraping':
             console.log('[Task] 用户取消采集任务');
             clearAllAlarms();
-            taskQueue = [];
-            setScrapingActiveState(false);
-            chrome.storage.local.remove('taskQueue');
-            updateBadgeText('off');
             break;
 
         case 'error':
             console.error('[Error] 插件错误：', message.message);
-            notifyUser(`插件异常：${message.message}`);
-            clearAllAlarms();
+            notifyUser(`插件异常：${message.message}`);            
             break;
 
         default:
@@ -410,11 +400,6 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     if (tabId === currentTabId) {
         console.log('[Tabs] 目标采集标签页关闭，停止任务');
         clearAllAlarms();
-        taskQueue = [];
-        setScrapingActiveState(false);
-        chrome.storage.local.remove('taskQueue');
-        updateBadgeText('off');
-        currentTabId = null;
     }
 });
 
