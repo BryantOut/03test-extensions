@@ -48,9 +48,9 @@ function clearAllAlarms() {
     });
 }
 
-async function notifyUser(message) {
-    clearAllAlarms();
+async function notifyUser(message) {    
     try {
+        clearAllAlarms();
         const response = await fetch(WEB_HOOK_URL, {
             method: 'POST',
             headers: {
