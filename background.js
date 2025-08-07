@@ -50,7 +50,6 @@ function clearAllAlarms() {
 
 async function notifyUser(message) {    
     try {
-        clearAllAlarms();
         const response = await fetch(WEB_HOOK_URL, {
             method: 'POST',
             headers: {
@@ -69,6 +68,8 @@ async function notifyUser(message) {
         }
     } catch (error) {
         console.log('飞书通知请求出错:', error);
+    } finally {        
+        clearAllAlarms();
     }
 }
 
@@ -238,19 +239,22 @@ function triggerScraping() {
         return;
     }
 
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const activeTab = tabs[0];
-        const targetHost = "myseller.taobao.com";
+    const targetHost = "myseller.taobao.com";
 
-        if (!activeTab || !activeTab.url) {
-            console.warn("[Task] ❌ 当前标签页不可用");
-            return;
-        }
+    chrome.tabs.query({}, (tabs) => {
+        const existingTab = tabs.find(tab =>
+            tab.url &&
+            (tab.url.includes(targetHost) || tab.url.includes("loginmyseller.taobao.com"))
+        );
 
-        if (activeTab.url.includes(targetHost) || activeTab.url.includes("loginmyseller.taobao.com")) {
-            chrome.tabs.reload(activeTab.id, () => {
-                console.log("[Task] 🔁 刷新当前标签页");
-                setupNavigationListener(activeTab.id);
+        if (existingTab) {
+            chrome.windows.update(existingTab.windowId, { focused: true }, () => {
+                chrome.tabs.update(existingTab.id, { active: true }, () => {
+                    chrome.tabs.reload(existingTab.id, () => {
+                        console.log("[Task] 🔁 重用已有标签页执行任务");
+                        setupNavigationListener(existingTab.id);
+                    });
+                });
             });
         } else {
             chrome.tabs.create({ url: `https://${targetHost}/` }, (tab) => {
