@@ -1,8 +1,13 @@
 // ========== 配置 ==========
-const HOURLY_INTERVAL = 60 * 60 * 1000; // 每小时执行一次
+const HOURLY_INTERVAL_MIN = 2; // 每60分钟执行一次
 const DELAY_TIME = 3000;
 const WEB_HOOK_URL = 'https://open.feishu.cn/open-apis/bot/v2/hook/64eb0327-2138-48ef-a5c3-2f1bab3a6a57';
-const VITE_API_URL ="http://localhost:5050"
+const VITE_API_URL = "http://localhost:5050"
+const TARGET_HOST = "myseller.taobao.com";
+const MIN_HOUR = 8;
+const MAX_HOUR = 24;
+
+
 
 // 状态变量：是否激活任务
 let isScrapingActive = false;
@@ -11,24 +16,28 @@ let currentTabId = null;
 
 // ========== 辅助函数 ==========
 
+// 更新标签文字
 function updateBadgeText(text) {
     chrome.action.setBadgeText({ text });
     chrome.action.setBadgeBackgroundColor({ color: text === 'on' ? '#4CAF50' : '#f44336' });
 }
 
+// 运行时间段
 function isWithinActiveHours() {
     const hour = new Date().getHours();
-    return hour >= 8 && hour < 24;
+    return hour >= MIN_HOUR && hour < MAX_HOUR;
 }
 
+// 创建明天的闹钟
 function createHourlyAlarm() {
+    // 创建一次性闹钟，不设置periodInMinutes
     chrome.alarms.create('hourlyTask', {
-        periodInMinutes: 60,
-        when: Date.now() + HOURLY_INTERVAL
+        delayInMinutes: HOURLY_INTERVAL_MIN
     });
-    console.log('[Alarm] ⏰ 创建 hourlyTask');
+    console.log('[Alarm] ⏰ 创建一次性 hourlyTask，将在' + HOURLY_INTERVAL_MIN + '分钟后触发');
 }
 
+// 创建当天的闹钟
 function createNextDayAlarm() {
     const now = new Date();
     const next8am = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 8, 0, 0, 0);
@@ -38,6 +47,7 @@ function createNextDayAlarm() {
     console.log(`[Alarm] ⏱️ 安排明天8点任务启动，等待 ${Math.floor(delay / 60000)} 分钟`);
 }
 
+// 清除闹钟
 function clearAllAlarms() {
     chrome.alarms.clearAll(() => {
         taskQueue = [];
@@ -48,72 +58,46 @@ function clearAllAlarms() {
     });
 }
 
-async function notifyUser(message) {    
-    try {
-        const response = await fetch(WEB_HOOK_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                msg_type: 'text',
-                content: { text: message }
-            })
-        });
+async function notifyUser(message) {
+    // try {
+    //     const response = await fetch(WEB_HOOK_URL, {
+    //         method: 'POST',
+    //         headers: {
+    //             'Content-Type': 'application/json'
+    //         },
+    //         body: JSON.stringify({
+    //             msg_type: 'text',
+    //             content: { text: message }
+    //         })
+    //     });
 
-        if (response.ok) {
-            console.log('飞书通知成功');
-        } else {
-            console.log(`飞书通知失败，状态码: ${response.status}`);
-        }
-    } catch (error) {
-        console.log('飞书通知请求出错:', error);
-    } finally {        
-        clearAllAlarms();
-    }
+    //     if (response.ok) {
+    //         console.log('飞书通知成功');
+    //     } else {
+    //         console.log(`飞书通知失败，状态码: ${response.status}`);
+    //     }
+    // } catch (error) {
+    //     console.log('飞书通知请求出错:', error);
+    // } finally {        
+    //     clearAllAlarms();
+    // }
+    console.log(message)
 }
 
 // ========== 持久化状态 ==========
-
 function setScrapingActiveState(state) {
     isScrapingActive = state;
     chrome.storage.local.set({ isScrapingActive: state });
 }
 
+// 重置任务
 function persistTaskQueue() {
     chrome.storage.local.set({ taskQueue: JSON.stringify(taskQueue) });
 }
 
-function restoreScrapingState() {
-    chrome.storage.local.get(['isScrapingActive', 'taskQueue'], (result) => {
-        if (result.isScrapingActive) {
-            isScrapingActive = true;
-            console.log('[Restore] 任务状态恢复');
-
-            if (result.taskQueue) {
-                try {
-                    taskQueue = JSON.parse(result.taskQueue);
-                    console.log('[Restore] 恢复任务队列:', taskQueue.length, '项');
-                } catch (err) {
-                    console.warn('[Restore] 任务队列解析失败:', err);
-                }
-            }
-
-            triggerScraping();
-            if (isWithinActiveHours()) {
-                createHourlyAlarm();
-            } else {
-                createNextDayAlarm();
-            }
-            updateBadgeText('on');
-        } else {
-            updateBadgeText('off');
-        }
-    });
-}
-
 // ========== 时间参数工具 ==========
 
+// 任务表
 function getDateParams() {
     const today = new Date();
     const oneDay = 24 * 60 * 60 * 1000;
@@ -141,6 +125,7 @@ function buildAnalysisUrl({ statisticsStartTime, statisticsEndTime, cateId, date
 
 // ========== 任务调度逻辑 ==========
 
+// 开始任务
 function startTasks(tabId) {
     taskQueue = getDateParams().map(params => ({
         url: buildAnalysisUrl(params),
@@ -151,6 +136,7 @@ function startTasks(tabId) {
     runNextTask();
 }
 
+// 下一步任务
 function runNextTask() {
     if (!isScrapingActive) {
         console.log('[Task] ⏹️ 已被取消');
@@ -173,9 +159,10 @@ function runNextTask() {
             console.log("➡️ 跳转至分析链接:", url);
             setupNavigationListener(tab.id);
         });
-    }, 3000);
+    }, DELAY_TIME);
 }
 
+// 监听导航栏变化
 function setupNavigationListener(tabId) {
     // 清理之前的监听，防止重复监听导致多次触发
     chrome.webNavigation.onCompleted.removeListener(onNavigationCompleted);
@@ -217,7 +204,7 @@ function setupNavigationListener(tabId) {
                         files: ['content_sycm_step1.js']
                     }).catch(err => console.error('注入 Step1 脚本失败:', err));
                 });
-            }, 3000);
+            }, DELAY_TIME);
         }
 
         // 监听一次，完成后移除
@@ -233,40 +220,38 @@ function setupNavigationListener(tabId) {
     });
 }
 
+// 校验是否要新建标签
 function triggerScraping() {
     if (!isScrapingActive || !isWithinActiveHours()) {
         console.log('[Task] ⏸ 非活跃时间段或已取消');
         return;
     }
 
-    const targetHost = "myseller.taobao.com";
+    if (typeof currentTabId !== "number" || currentTabId === null) {
+        // 直接创建新标签页
+        chrome.tabs.create({ url: `https://${TARGET_HOST}/` }, (tab) => {
+            if (tab && tab.id) {
+                console.log("[Task] 🆕 新建标签页采集");
+                setupNavigationListener(tab.id);
+            } else {
+                console.warn("[Task] ❌ 创建标签失败");
+            }
+        });
+        return;
+    }
 
-    chrome.tabs.query({}, (tabs) => {
-        const existingTab = tabs.find(tab =>
-            tab.url &&
-            (tab.url.includes(targetHost) || tab.url.includes("loginmyseller.taobao.com"))
-        );
-
-        if (existingTab) {
-            chrome.windows.update(existingTab.windowId, { focused: true }, () => {
-                chrome.tabs.update(existingTab.id, { active: true }, () => {
-                    chrome.tabs.reload(existingTab.id, () => {
-                        console.log("[Task] 🔁 重用已有标签页执行任务");
-                        setupNavigationListener(existingTab.id);
-                    });
-                });
-            });
-        } else {
-            chrome.tabs.create({ url: `https://${targetHost}/` }, (tab) => {
-                if (tab && tab.id) {
-                    console.log("[Task] 🆕 新建标签页采集");
-                    setupNavigationListener(tab.id);
-                } else {
-                    console.warn("[Task] ❌ 创建标签失败");
-                }
-            });
+    chrome.tabs.get(currentTabId, (tab) => {
+        if (chrome.runtime.lastError) {
+            // 标签页不存在，创建新标签页
+            console.log('标签页不存在，创建新标签页')
+            return;
         }
-    });
+
+        chrome.tabs.update(tab.id, { url: `https://${TARGET_HOST}/`, active: true }, (updatedTab) => {
+            console.log("[Task] 🔁 重用已有标签页执行任务");
+            setupNavigationListener(updatedTab.id)
+        });
+    })
 }
 
 // ========== 发送结果给后端 ==========
@@ -283,6 +268,12 @@ async function saveCateLinkRankHandler(data) {
         if (isError) {
             notifyUser(`爬取异常：${errMsg}`);
         } else {
+            // 设置下次执行时间
+            if (isWithinActiveHours()) {
+                createHourlyAlarm();
+            } else {
+                createNextDayAlarm();
+            }
             console.log('[Step3] ✅ 数据保存成功:', msg);
         }
         return !isError; // 标识成功
@@ -293,21 +284,15 @@ async function saveCateLinkRankHandler(data) {
 }
 
 // ========== 消息监听 ==========
-
 chrome.runtime.onMessage.addListener((message, sender) => {
     const tabId = sender?.tab?.id;
 
     switch (message.action) {
         case 'startTask':
             clearAllAlarms();
+            updateBadgeText('on');
             setScrapingActiveState(true);
             triggerScraping();
-            if (isWithinActiveHours()) {
-                createHourlyAlarm();
-            } else {
-                createNextDayAlarm();
-            }
-            updateBadgeText('on');
             break;
 
         case 'attributeSelectionDone':
@@ -317,7 +302,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
                         target: { tabId },
                         files: ['content_sycm_step2.js']
                     }).catch(err => console.error('注入 Step2 脚本失败:', err));
-                }, 3000);
+                }, DELAY_TIME);
             }
             break;
 
@@ -328,7 +313,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
                         target: { tabId },
                         files: ['content_sycm_step3.js']
                     }).catch(err => console.error('注入 Step3 脚本失败:', err));
-                }, 3000);
+                }, DELAY_TIME);
             }
             break;
 
@@ -369,7 +354,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
         case 'error':
             console.error('[Error] 插件错误：', message.message);
-            notifyUser(`插件异常：${message.message}`);            
+            notifyUser(`插件异常：${message.message}`);
             break;
 
         default:
@@ -405,15 +390,4 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
         console.log('[Tabs] 目标采集标签页关闭，停止任务');
         clearAllAlarms();
     }
-});
-
-// ========== 启动时自动恢复 ==========
-chrome.runtime.onStartup.addListener(() => {
-    console.log('[Startup] Chrome 启动，恢复状态');
-    restoreScrapingState();
-});
-
-chrome.runtime.onInstalled.addListener(() => {
-    console.log('[Install] 插件已安装，初始化状态');
-    restoreScrapingState();
 });

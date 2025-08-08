@@ -21,6 +21,8 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "生意参谋爬取"
+    "default_title": "生意参谋爬取",
+    "default_badge_text": "off",
+    "default_badge_background_color": "#f44336"
   }
 }
