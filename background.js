@@ -48,39 +48,42 @@ function createNextDayAlarm() {
 }
 
 // 清除闹钟
-function clearAllAlarms() {
+function clearAllAlarms(callback) {
     chrome.alarms.clearAll(() => {
         taskQueue = [];
         setScrapingActiveState(false);
         chrome.storage.local.remove('taskQueue');
         updateBadgeText('off');
         currentTabId = null;
+        
+        // 如果提供了回调函数，则执行
+        if (typeof callback === 'function') {
+            callback();
+        }
     });
 }
 
 async function notifyUser(message) {
-    // try {
-    //     const response = await fetch(WEB_HOOK_URL, {
-    //         method: 'POST',
-    //         headers: {
-    //             'Content-Type': 'application/json'
-    //         },
-    //         body: JSON.stringify({
-    //             msg_type: 'text',
-    //             content: { text: message }
-    //         })
-    //     });
+    try {
+        const response = await fetch(WEB_HOOK_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                msg_type: 'text',
+                content: { text: message }
+            })
+        });
 
-    //     if (response.ok) {
-    //         console.log('飞书通知成功');
-    //     } else {
-    //         console.log(`飞书通知失败，状态码: ${response.status}`);
-    //     }
-    // } catch (error) {
-    //     console.log('飞书通知请求出错:', error);
-    // } finally {        
-    //     clearAllAlarms();
-    // }
+        if (response.ok) {
+            console.log('飞书通知成功');
+        } else {
+            console.log(`飞书通知失败，状态码: ${response.status}`);
+        }
+    } catch (error) {
+        console.log('飞书通知请求出错:', error);
+    }
     console.log(message)
 }
 
@@ -289,10 +292,11 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
     switch (message.action) {
         case 'startTask':
-            clearAllAlarms();
-            updateBadgeText('on');
-            setScrapingActiveState(true);
-            triggerScraping();
+            clearAllAlarms(() => {
+                updateBadgeText('on');
+                setScrapingActiveState(true);
+                triggerScraping();
+            });
             break;
 
         case 'attributeSelectionDone':
@@ -349,7 +353,23 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
         case 'cancelScraping':
             console.log('[Task] 用户取消采集任务');
-            clearAllAlarms();
+            // 先保存当前标签页ID，因为clearAllAlarms会将其设为null
+            const tabToClose = currentTabId;
+            
+            // 清除所有闹钟和状态，然后在回调中处理标签页
+            clearAllAlarms(() => {
+                // 如果有正在进行的任务，尝试关闭或刷新标签页
+                if (tabToClose) {
+                    chrome.tabs.get(tabToClose, (tab) => {
+                        if (!chrome.runtime.lastError && tab) {
+                            // 将标签页导航到空白页以停止当前操作
+                            chrome.tabs.update(tabToClose, { url: 'about:blank' }, () => {
+                                console.log('[Task] 已停止当前标签页的操作');
+                            });
+                        }
+                    });
+                }
+            });
             break;
 
         case 'error':
@@ -388,6 +408,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     if (tabId === currentTabId) {
         console.log('[Tabs] 目标采集标签页关闭，停止任务');
-        clearAllAlarms();
+        clearAllAlarms(() => {
+            console.log('[Tabs] 已清除所有任务和闹钟');
+        });
     }
 });
