@@ -1,5 +1,5 @@
 // ========== 配置 ==========
-const HOURLY_INTERVAL_MIN = 2; // 每60分钟执行一次
+const HOURLY_INTERVAL_MIN = 60; // 每60分钟执行一次
 const DELAY_TIME = 3000;
 const WEB_HOOK_URL = 'https://open.feishu.cn/open-apis/bot/v2/hook/64eb0327-2138-48ef-a5c3-2f1bab3a6a57';
 const VITE_API_URL = "http://localhost:5050"
