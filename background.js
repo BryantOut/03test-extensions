@@ -1,8 +1,8 @@
 // ========== 配置 ==========
 const HOURLY_INTERVAL_MIN = 60; // 每60分钟执行一次
-const DELAY_TIME = 3000;
-const WEB_HOOK_URL = 'https://open.feishu.cn/open-apis/bot/v2/hook/64eb0327-2138-48ef-a5c3-2f1bab3a6a57';
-const VITE_API_URL = "http://localhost:5050"
+const DELAY_TIME = 1000*30; // 每次点击像个几秒
+const WEB_HOOK_URL = 'https://open.feishu.cn/open-apis/bot/v2/hook/64eb0327-2138-48ef-a5c3-2f1bab3a6a57'; // 飞书机器人地址
+const VITE_API_URL = "http://localhost:5050" // 后端地址
 const TARGET_HOST = "myseller.taobao.com";
 const MIN_HOUR = 8;
 const MAX_HOUR = 24;
